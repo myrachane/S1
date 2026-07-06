@@ -1,333 +1,1701 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>random game</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ViSRODECK — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Pixelify+Sans:wght@500;600;700&display=swap" rel="stylesheet">
 
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            font-family: 'Arial', sans-serif;
-        }
+<!--
+============================================================================
+ FRONTEND-ONLY MOCKUP — visrodeck.com/dashboard
+============================================================================
+ Nothing on this page talks to a real server. Every action just updates
+ in-memory JS state. Every place a real backend call needs to slot in is
+ marked with a // BACKEND: comment next to the function that triggers it.
 
-        .game-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 20px;
-        }
+ v4 CHANGE NOTES
+ - Strict black & white visual system (no accent hue). Status is now
+   communicated with icon glyphs + weight/opacity, not color, so it holds
+   up under grayscale printing, color-blindness, and dark/light both.
+ - Whole shell is now centered in the viewport with a max-width, instead
+   of being pinned to the left edge of very wide screens.
+ - True mobile layout: sidebar becomes an off-canvas drawer under 900px,
+   opened with a menu button in the topbar; tables scroll horizontally
+   instead of overflowing; touch targets sized up.
+ - New "Payments" page: transaction history for the signed-in account
+   across every workspace it belongs to, plus saved payment methods.
+ - Phone number field is now a country-code select + local-number input,
+   instead of one freeform text field.
+ - Profile details gained a "Billing address" section (used by Payments
+   for invoices).
+ - Every SUDO action (username change, migrate, data export, delete) now
+   sends a verification email to the address on file and will not apply
+   until that link is clicked — modals show a "check your email" step
+   instead of completing immediately.
 
-        h1 {
-            color: white;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-        }
+ AUTH / ROUTING ASSUMPTION
+ This page assumes the visitor already has a valid session (the sign-in
+ page — a separate file — sets this up). On real load:
+   - No valid session cookie/JWT  -> redirect to /signin.
+   - Session valid but user has never set a username -> the
+     Overview/Profile pages below ARE the onboarding step.
+   - Session valid + OAuth first-time login -> username already exists,
+     but consider a soft "complete your profile" nudge on Overview.
 
-        #gameCanvas {
-            background-color: #1a1a1a;
-            border: 4px solid white;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-            cursor: none;
-        }
+ DATA THIS PAGE NEEDS ON LOAD (roughly):
+   GET /api/me            -> { avatarUrl, name, username, email, pronoun,
+                                organisation, phoneCountryCode, phone,
+                                address: {line1, line2, city, state,
+                                postalCode, country}, emailVerified }
+   GET /api/workspaces     -> [{ id, name, role, memberCount, moduleCount }]
+   GET /api/tickets        -> [{ id, subject, status, priority, workspace, updatedAt }]
+   GET /api/connections    -> [{ id, provider, connectedAt, scopes }]
+   GET /api/licenses       -> [{ id, module, workspace, seatsUsed, seatsTotal, status, expiresAt }]
+   GET /api/payments       -> [{ id, date, description, workspace, method,
+                                amount, currency, status, invoiceUrl }]
+   GET /api/payment-methods -> [{ id, brand, last4, expiry, isDefault }]
+============================================================================
+-->
 
-        .scoreboard {
-            display: flex;
-            gap: 40px;
-            color: white;
-            font-size: 24px;
-            font-weight: bold;
-        }
+<style>
+  :root[data-theme="dark"] {
+    --bg-outer: #050505;
+    --bg: #0A0A0A;
+    --sidebar: #000000;
+    --surface: #111111;
+    --card: #141414;
+    --card-hover: #1B1B1B;
+    --border: #262626;
+    --border-strong: #3A3A3A;
+    --text: #F3F3F1;
+    --text-muted: #A3A3A0;
+    --text-faint: #6B6B69;
+    --accent: #FFFFFF;
+    --accent-strong: #FFFFFF;
+    --accent-bg: rgba(255,255,255,0.09);
+    --accent-ink: #0A0A0A;
+    --danger-border: #F3F3F1;
+    --shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  :root[data-theme="light"] {
+    --bg-outer: #E7E7E5;
+    --bg: #FFFFFF;
+    --sidebar: #FAFAF9;
+    --surface: #FFFFFF;
+    --card: #FFFFFF;
+    --card-hover: #F3F3F2;
+    --border: #E1E1DF;
+    --border-strong: #C7C7C4;
+    --text: #111111;
+    --text-muted: #5B5B58;
+    --text-faint: #8E8E8B;
+    --accent: #111111;
+    --accent-strong: #000000;
+    --accent-bg: rgba(0,0,0,0.06);
+    --accent-ink: #FFFFFF;
+    --danger-border: #111111;
+    --shadow: 0 8px 24px rgba(20,20,20,0.08);
+  }
 
-        .score-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 10px;
-        }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg-outer);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    transition: background-color .15s ease, color .15s ease;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4, .pixel { font-family: 'Pixelify Sans', monospace; letter-spacing: 0.02em; font-weight: 600; }
+  .mono, .data { font-family: 'IBM Plex Mono', monospace; }
 
-        .score-label {
-            font-size: 14px;
-            opacity: 0.8;
-        }
+  a { color: inherit; }
+  button { font-family: inherit; }
+  svg { stroke: currentColor; }
 
-        .score-value {
-            font-size: 36px;
-            color: #4ade80;
-        }
+  /* ===== Outer wrap keeps the whole app centered on wide screens ===== */
+  .page-wrap {
+    max-width: 1440px;
+    margin: 0 auto;
+    min-height: 100vh;
+    background: var(--bg);
+    box-shadow: var(--shadow);
+    position: relative;
+  }
 
-        .instructions {
-            color: white;
-            text-align: center;
-            font-size: 14px;
-            opacity: 0.9;
-            line-height: 1.6;
-        }
+  /* ===== Shell layout ===== */
+  .shell { display: flex; min-height: 100vh; }
 
-        .instructions strong {
-            color: #4ade80;
-        }
-    </style>
+  .sidebar-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 39;
+  }
+  .sidebar-overlay.open { display: block; }
+
+  .sidebar {
+    width: 232px;
+    flex-shrink: 0;
+    background: var(--sidebar);
+    border-right: 1px solid var(--border);
+    padding: 20px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .brand { display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 2px 8px 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .brand-left { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .brand-mark {
+    width: 26px; height: 26px; border-radius: 6px; background: var(--accent);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    overflow: hidden;
+  }
+  .brand-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .brand span { font-size: 15px; letter-spacing: 0.03em; }
+  .sidebar-close { display: none; background: none; border: none; color: var(--text-faint); cursor: pointer; padding: 4px; }
+
+  .nav-group { display: flex; flex-direction: column; gap: 1px; }
+  .nav-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-faint); padding: 12px 12px 5px;
+  }
+  .nav-item {
+    position: relative;
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px 9px 14px; border-radius: 6px; cursor: pointer;
+    font-size: 13px; color: var(--text-muted); font-weight: 500;
+    border: none; background: transparent; text-align: left; width: 100%;
+  }
+  .nav-item svg { flex-shrink: 0; width: 15px; height: 15px; stroke: var(--text-faint); fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .nav-item:hover { background: var(--card); color: var(--text); }
+  .nav-item.active { background: var(--card); color: var(--text); font-weight: 600; }
+  .nav-item.active svg { stroke: var(--text); }
+  .nav-item.active::before {
+    content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px;
+    background: var(--text); border-radius: 2px;
+  }
+  .nav-item.danger-ish:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+
+  .sidebar-foot {
+    margin-top: auto; padding: 12px 12px 2px; border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .avatar-initials {
+    width: 30px; height: 30px; border-radius: 7px; background: var(--accent-bg); color: var(--text);
+    display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px; font-weight: 600; flex-shrink: 0; border: 1px solid var(--border);
+  }
+  .sidebar-foot .who { font-size: 10.5px; color: var(--text-faint); line-height: 1.5; min-width: 0; }
+  .sidebar-foot .who strong { display: block; font-size: 12px; color: var(--text-muted); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+  .topbar {
+    height: 60px; flex-shrink: 0; display: flex; align-items: center;
+    justify-content: space-between; padding: 0 26px; gap: 12px;
+    border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .menu-btn {
+    display: none; background: none; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); cursor: pointer; padding: 6px 7px; flex-shrink: 0; align-items: center; justify-content: center;
+  }
+  .topbar-title { font-size: 15px; }
+  .topbar-crumb { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--text-faint); margin-top: 2px; }
+  .topbar-right { display: flex; align-items: center; gap: 16px; }
+
+  /* theme toggle slider */
+  .theme-toggle {
+    display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
+  }
+  .theme-toggle span { font-size: 10.5px; color: var(--text-faint); font-family: 'IBM Plex Mono', monospace; }
+  .switch {
+    width: 38px; height: 21px; border-radius: 5px; background: var(--surface);
+    border: 1px solid var(--border-strong); position: relative; transition: background .15s;
+  }
+  .switch .knob {
+    position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 3px;
+    background: var(--text); transition: transform .15s ease;
+  }
+  [data-theme="light"] .switch .knob { transform: translateX(17px); }
+
+  .avatar-chip {
+    display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px;
+    border-radius: 7px; border: 1px solid var(--border); cursor: pointer;
+  }
+  .avatar-chip:hover { border-color: var(--border-strong); }
+  .avatar-chip .avatar-initials { width: 24px; height: 24px; font-size: 10px; border-radius: 5px; }
+  .avatar-chip span { font-size: 12px; font-weight: 600; }
+
+  .content { padding: 28px 32px 40px; max-width: 980px; margin: 0 auto; width: 100%; flex: 1 0 auto; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  .page-head { margin-bottom: 20px; }
+  .page-head h1 { font-size: 21px; margin: 0 0 6px; }
+  .page-head p { margin: 0; font-size: 13px; color: var(--text-muted); max-width: 640px; line-height: 1.6; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px; box-shadow: var(--shadow); position: relative;
+  }
+  .card + .card { margin-top: 14px; }
+  .card h3 { font-size: 12.5px; margin: 0 0 4px; letter-spacing: 0.01em; }
+  .card .hint { font-size: 12px; color: var(--text-faint); margin: 0 0 16px; }
+  .card .hint code { font-family: 'IBM Plex Mono', monospace; background: var(--surface); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border); }
+  .card-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
+  .card-head-row h3 { margin: 0; }
+
+  .notice {
+    display: flex; align-items: flex-start; gap: 10px; background: var(--surface);
+    border: 1px solid var(--border-strong); border-radius: 8px; padding: 12px 14px;
+    font-size: 12.5px; color: var(--text-muted); line-height: 1.55; margin-bottom: 16px;
+  }
+  .notice svg { flex-shrink: 0; width: 15px; height: 15px; margin-top: 1px; }
+  .notice strong { color: var(--text); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 720px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  label.field-label {
+    display: block; font-size: 11.5px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;
+  }
+  input[type="text"], input[type="email"], input[type="tel"], input[type="search"], select, textarea {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface); color: var(--text); font-family: inherit; font-size: 13px; outline: none;
+    transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease, color .12s ease;
+  }
+  input:hover, select:hover, textarea:hover { border-color: var(--border-strong); }
+  input:focus, select:focus, textarea:focus { border-color: var(--text); box-shadow: 0 0 0 3px var(--accent-bg); }
+  textarea { resize: vertical; min-height: 88px; }
+  .field { margin-bottom: 13px; }
+  .field-sub { grid-column: 1 / -1; }
+
+  /* phone number: country code + local number */
+  .phone-row { display: flex; gap: 8px; }
+  .phone-row select { flex: 0 0 118px; min-width: 0; }
+  .phone-row input { flex: 1; min-width: 0; }
+
+  /* locked (view-mode) state for the profile form */
+  fieldset.profile-fields { border: none; margin: 0; padding: 0; }
+  fieldset.profile-fields:disabled input,
+  fieldset.profile-fields:disabled select,
+  fieldset.profile-fields:disabled textarea {
+    background: transparent; border-color: transparent; color: var(--text);
+    cursor: default; padding-left: 0; box-shadow: none;
+  }
+  fieldset.profile-fields:disabled select {
+    -webkit-appearance: none; appearance: none; background-image: none;
+  }
+  fieldset.profile-fields:disabled .phone-row select { padding-left: 0; }
+
+  .edit-badge {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--text-faint);
+  }
+
+  .section-divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 10px 16px; border-radius: 7px; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; border: 1px solid transparent; transition: filter .12s ease, box-shadow .12s ease, border-color .12s ease, opacity .12s ease;
+    min-height: 38px;
+  }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); }
+  .btn-primary:hover { filter: brightness(1.15); }
+  [data-theme="light"] .btn-primary:hover { filter: brightness(1.4); }
+  .btn-primary:disabled { opacity: .6; cursor: default; filter: none; }
+  .btn-secondary { background: transparent; color: var(--text); border-color: var(--border-strong); }
+  .btn-secondary:hover { background: var(--card-hover); }
+  .btn-danger { background: transparent; color: var(--text); border-color: var(--danger-border); }
+  .btn-danger:hover { background: var(--card-hover); }
+  .btn-danger.solid { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .btn-danger.solid:hover { filter: brightness(1.15); }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .btn-sm { padding: 7px 12px; font-size: 11.5px; min-height: 32px; }
+
+  .spinner {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid rgba(128,128,128,0.35); border-top-color: currentColor;
+    animation: spin .7s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px; font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border-strong);
+    padding: 2px 8px 2px 6px; border-radius: 20px; white-space: nowrap;
+  }
+  .badge .g { font-size: 11px; line-height: 1; }
+  .badge-success { color: var(--text); }
+  .badge-warn { color: var(--text-muted); border-style: dashed; }
+  .badge-danger { color: var(--text); border-color: var(--text); }
+  .badge-muted { color: var(--text-faint); }
+
+  /* ===== profile summary on overview ===== */
+  .profile-hero { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .profile-hero .avatar-initials { width: 60px; height: 60px; border-radius: 12px; font-size: 20px; }
+  .profile-hero .who h2 { margin: 0 0 3px; font-size: 17px; }
+  .profile-hero .who .uname { font-size: 12px; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; }
+  .profile-hero .who .mail { font-size: 12px; color: var(--text-muted); margin-top: 5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .stat-row { display: flex; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 120px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 13px 15px; }
+  .stat .n { font-family: 'Pixelify Sans', monospace; font-size: 21px; font-weight: 600; }
+  .stat .l { font-size: 10.5px; color: var(--text-faint); margin-top: 3px; font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; }
+
+  /* ===== workspace "card index" tiles ===== */
+  .deck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(216px, 1fr)); gap: 12px; margin-top: 4px; }
+  .deck-card {
+    position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 16px 14px; cursor: pointer; transition: transform .12s ease, border-color .12s ease;
+  }
+  .deck-card:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .card-index {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; line-height: 1;
+    position: absolute; display: flex; flex-direction: column; align-items: center; gap: 1px; color: var(--text);
+  }
+  .card-index.tl { top: 10px; left: 12px; }
+  .card-index.br { bottom: 10px; right: 12px; transform: rotate(180deg); }
+  .deck-card h4 { margin: 4px 20px 4px 0; font-size: 13.5px; }
+  .deck-card .meta { font-size: 11px; color: var(--text-faint); font-family: 'IBM Plex Mono', monospace; }
+  .deck-card .role { margin-top: 14px; }
+
+  .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 560px; }
+  .table th { text-align: left; font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--text-faint); padding: 0 10px 9px; border-bottom: 1px solid var(--border); font-weight: 500; white-space: nowrap; }
+  .table td { padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .table tr:last-child td { border-bottom: none; }
+  .table tr.row-hover:hover td { background: var(--card-hover); }
+  .table .id-cell { font-family: 'IBM Plex Mono', monospace; color: var(--text-faint); }
+  .table .subject-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .table .date-cell { font-family: 'IBM Plex Mono', monospace; color: var(--text-faint); font-size: 11.5px; white-space: nowrap; }
+  .table .amount-cell { font-family: 'IBM Plex Mono', monospace; font-weight: 600; white-space: nowrap; }
+  .table .link-cell a { font-size: 11.5px; color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; white-space: nowrap; }
+  .table .link-cell a:hover { color: var(--text); }
+
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin: 24px 0 11px; flex-wrap: wrap; gap: 10px; }
+  .section-head h3 { margin: 0; font-size: 13px; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .legend .item { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; }
+  .legend .item b { font-size: 13px; color: var(--text); }
+
+  .sudo-card { border-color: var(--border-strong); }
+  .sudo-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--border); gap: 16px; flex-wrap: wrap; }
+  .sudo-row:last-child { border-bottom: none; }
+  .sudo-row .t { font-size: 13px; font-weight: 600; }
+  .sudo-row .d { font-size: 11.5px; color: var(--text-faint); margin-top: 3px; }
+
+  .conn-row { display: flex; align-items: center; gap: 13px; padding: 13px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .conn-row:last-child { border-bottom: none; }
+  .conn-icon { width: 32px; height: 32px; border-radius: 7px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--surface); border: 1px solid var(--border); }
+  .conn-row .grow { flex: 1; min-width: 160px; }
+  .conn-row .name { font-size: 13px; font-weight: 600; }
+  .conn-row .scopes { font-size: 11px; color: var(--text-faint); margin-top: 2px; font-family: 'IBM Plex Mono', monospace; }
+
+  /* ===== payment methods ===== */
+  .pm-row { display: flex; align-items: center; gap: 13px; padding: 13px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .pm-row:last-child { border-bottom: none; }
+  .pm-card-icon {
+    width: 40px; height: 28px; border-radius: 5px; border: 1px solid var(--border-strong);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 700; letter-spacing: 0.02em;
+  }
+  .pm-row .grow { flex: 1; min-width: 160px; }
+  .pm-row .name { font-size: 13px; font-weight: 600; }
+  .pm-row .meta { font-size: 11px; color: var(--text-faint); margin-top: 2px; font-family: 'IBM Plex Mono', monospace; }
+
+  /* ===== filter bar ===== */
+  .filter-bar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .filter-bar .search-wrap { position: relative; flex: 1; min-width: 180px; }
+  .filter-bar .search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; stroke: var(--text-faint); pointer-events: none; }
+  .filter-bar .search-wrap input { padding-left: 30px; }
+  .filter-bar select { width: auto; min-width: 130px; }
+  .empty-row td { text-align: center; color: var(--text-faint); padding: 26px 10px; font-size: 12.5px; }
+
+  /* ===== licenses ===== */
+  .stat-strip { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .stat-strip .stat { flex: 1; min-width: 130px; }
+  .seat-bar { width: 84px; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; display: inline-block; vertical-align: middle; }
+  .seat-bar-fill { height: 100%; background: var(--text); }
+  .seat-text { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--text-muted); margin-left: 8px; }
+  .suit-chip { width: 20px; height: 20px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; margin-right: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+
+  /* ===== modal ===== */
+  .modal-backdrop {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    align-items: center; justify-content: center; z-index: 50; padding: 16px;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; width: 100%; max-width: 410px; box-shadow: var(--shadow);
+    max-height: 90vh; overflow-y: auto;
+  }
+  .modal h3 { margin: 0 0 4px; font-size: 15px; }
+  .modal .hint { font-size: 11.5px; color: var(--text-faint); margin: 0 0 16px; }
+  .modal-tabs { display: flex; gap: 4px; background: var(--surface); border-radius: 7px; padding: 3px; margin-bottom: 15px; border: 1px solid var(--border); }
+  .modal-tabs button {
+    flex: 1; border: none; background: transparent; padding: 7px 0; border-radius: 5px;
+    font-size: 12px; font-weight: 600; color: var(--text-muted); cursor: pointer;
+  }
+  .modal-tabs button.active { background: var(--card); color: var(--text); }
+  .modal-pane { display: none; }
+  .modal-pane.active { display: block; }
+
+  .pending-panel { text-align: center; padding: 6px 0 2px; }
+  .pending-panel .icon-circle {
+    width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--border-strong);
+    display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;
+  }
+  .pending-panel .icon-circle svg { width: 20px; height: 20px; }
+  .pending-panel h4 { font-size: 14px; margin: 0 0 8px; }
+  .pending-panel p { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; margin: 0 0 18px; }
+  .pending-panel .email-chip {
+    display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 5px; color: var(--text);
+  }
+
+  .toast {
+    position: fixed; bottom: 20px; right: 20px; left: 20px; margin: 0 auto; max-width: 380px;
+    background: var(--card); border: 1px solid var(--border-strong);
+    color: var(--text); padding: 11px 16px; border-radius: 8px; font-size: 12.5px; box-shadow: var(--shadow);
+    transform: translateY(16px); opacity: 0; pointer-events: none; transition: all .2s ease; z-index: 60;
+    display: flex; align-items: center; gap: 9px;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+
+  /* ===== footer ===== */
+  .site-footer {
+    flex-shrink: 0; border-top: 1px solid var(--border); background: var(--surface);
+    padding: 18px 26px; display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px;
+  }
+  .site-footer .fco { font-size: 12px; color: var(--text-muted); }
+  .site-footer .fco strong { color: var(--text); font-weight: 600; }
+  .footer-links { display: flex; gap: 18px; }
+  .footer-links a {
+    font-size: 12px; color: var(--text-faint); text-decoration: none; cursor: pointer;
+    border-bottom: 1px solid transparent;
+  }
+  .footer-links a:hover { color: var(--text-muted); border-bottom-color: var(--border-strong); }
+
+  /* ===== MOBILE ===== */
+  @media (max-width: 900px) {
+    .page-wrap { max-width: 100%; box-shadow: none; }
+    .menu-btn { display: inline-flex; }
+    .sidebar {
+      position: fixed; top: 0; bottom: 0; left: 0; z-index: 40; width: 260px;
+      transform: translateX(-100%); transition: transform .2s ease; box-shadow: var(--shadow);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-close { display: inline-flex; }
+    .topbar { padding: 0 14px; }
+    .content { padding: 18px 16px 32px; }
+    .site-footer { padding: 16px; flex-direction: column; align-items: flex-start; }
+    .stat-row, .stat-strip { flex-direction: column; }
+    .stat { min-width: 0; }
+    .filter-bar select { min-width: 0; flex: 1 1 45%; }
+  }
+  @media (max-width: 480px) {
+    .page-head h1 { font-size: 18px; }
+    .card { padding: 16px; }
+    .theme-toggle span { display: none; }
+    .avatar-chip span { display: none; }
+    .btn-row .btn { flex: 1 1 auto; }
+    .phone-row { flex-direction: column; }
+    .phone-row select { flex: 1 1 auto; }
+  }
+</style>
 </head>
 <body>
-    <div class="game-container">
-        <h1>🎮 PONG GAME 🎮</h1>
-        
-        <div class="scoreboard">
-            <div class="score-item">
-                <span class="score-label">PLAYER</span>
-                <div class="score-value" id="playerScore">0</div>
-            </div>
-            <div class="score-item">
-                <span class="score-label">COMPUTER</span>
-                <div class="score-value" id="computerScore">0</div>
-            </div>
-        </div>
 
-        <canvas id="gameCanvas" width="800" height="400"></canvas>
+<div class="page-wrap">
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+<div class="shell">
 
-        <div class="instructions">
-            <div><strong>Controls:</strong></div>
-            <div>🖱️ Move mouse up/down OR ⬆️⬇️ Arrow keys to control left paddle</div>
-            <div>🤖 Computer controls right paddle automatically</div>
-            <div>Press <strong>SPACE</strong> to start/pause</div>
+  <!-- ============================== SIDEBAR ============================== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-left">
+        <div class="brand-mark" id="brandMark">
+          <img src="https://cdn.visrodeck/logo" alt="ViSRODECK logo" id="brandLogoImg"
+               onerror="this.replaceWith(document.getElementById('brandLogoFallback').content.cloneNode(true))">
         </div>
+        <span class="pixel">ViSRODECK</span>
+      </div>
+      <button class="sidebar-close" onclick="closeSidebar()" aria-label="Close menu">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
     </div>
 
-    <script>
-        // Canvas setup
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
+    <div class="nav-group">
+      <div class="nav-label">Account</div>
+      <button class="nav-item active" data-page="overview" onclick="showPage('overview')">
+        <svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg>
+        Overview
+      </button>
+      <button class="nav-item" data-page="profile" onclick="showPage('profile')">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20c1.5-4 4.5-6 7.5-6s6 2 7.5 6"/></svg>
+        Profile details
+      </button>
+    </div>
 
-        // Game objects
-        const paddleWidth = 10;
-        const paddleHeight = 80;
-        const ballSize = 8;
-        const ballSpeed = 5;
+    <div class="nav-group">
+      <div class="nav-label">Workspace</div>
+      <button class="nav-item" data-page="workspaces" onclick="showPage('workspaces')">
+        <svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>
+        Workspaces
+      </button>
+    </div>
 
-        // Player paddle (left)
-        const player = {
-            x: 10,
-            y: canvas.height / 2 - paddleHeight / 2,
-            width: paddleWidth,
-            height: paddleHeight,
-            dy: 0,
-            speed: 6
-        };
+    <div class="nav-group">
+      <div class="nav-label">Billing</div>
+      <button class="nav-item" data-page="payments" onclick="showPage('payments')">
+        <svg viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.2"/><path d="M2.5 9.5h19"/><path d="M6 14.2h5"/></svg>
+        Payments
+      </button>
+    </div>
 
-        // Computer paddle (right)
-        const computer = {
-            x: canvas.width - paddleWidth - 10,
-            y: canvas.height / 2 - paddleHeight / 2,
-            width: paddleWidth,
-            height: paddleHeight,
-            speed: 4.5
-        };
+    <div class="nav-group">
+      <div class="nav-label">Support</div>
+      <button class="nav-item" data-page="tickets" onclick="showPage('tickets')">
+        <svg viewBox="0 0 24 24"><path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V8Z"/><path d="M14 6v12" stroke-dasharray="2 2"/></svg>
+        Tickets
+      </button>
+    </div>
 
-        // Ball
-        const ball = {
-            x: canvas.width / 2,
-            y: canvas.height / 2,
-            dx: ballSpeed,
-            dy: ballSpeed,
-            size: ballSize
-        };
+    <div class="nav-group">
+      <div class="nav-label">Integrations</div>
+      <button class="nav-item" data-page="connections" onclick="showPage('connections')">
+        <svg viewBox="0 0 24 24"><path d="M9 15 15 9"/><path d="M11 6.5 12.5 5a3 3 0 0 1 4.5 4l-1.5 1.5"/><path d="M13 17.5 11.5 19a3 3 0 0 1-4.5-4l1.5-1.5"/></svg>
+        Connections
+      </button>
+      <button class="nav-item" data-page="licenses" onclick="showPage('licenses')">
+        <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M7 14h4"/></svg>
+        Licenses
+      </button>
+    </div>
 
-        // Game state
-        let playerScore = 0;
-        let computerScore = 0;
-        let gameRunning = true;
+    <div class="nav-group">
+      <div class="nav-label">Danger zone</div>
+      <button class="nav-item danger-ish" data-page="sudo" onclick="showPage('sudo')">
+        <svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 7.8 7 9 4-1.2 7-4.5 7-9V6l-7-3Z"/><path d="M9.5 12 11 13.5 14.5 10"/></svg>
+        SUDO
+      </button>
+    </div>
 
-        // Input handling
-        const keys = {};
+    <div class="sidebar-foot">
+      <div class="avatar-initials">AC</div>
+      <div class="who">Signed in as<br><strong id="sidebarEmail">alex@visrodeck.com</strong></div>
+    </div>
+  </aside>
 
-        window.addEventListener('keydown', (e) => {
-            keys[e.key] = true;
-            if (e.key === ' ') {
-                e.preventDefault();
-                gameRunning = !gameRunning;
-            }
-        });
+  <!-- ============================== MAIN ============================== -->
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="menu-btn" onclick="openSidebar()" aria-label="Open menu">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+        <div>
+          <div class="topbar-title pixel" id="topbarTitle">Overview</div>
+          <div class="topbar-crumb" id="topbarCrumb">visrodeck.com/dashboard</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="theme-toggle" onclick="toggleTheme()">
+          <span>LIGHT</span>
+          <div class="switch"><div class="knob"></div></div>
+          <span>DARK</span>
+        </div>
+        <div class="avatar-chip">
+          <div class="avatar-initials">AC</div>
+          <span id="topbarUsername">alex</span>
+        </div>
+      </div>
+    </header>
 
-        window.addEventListener('keyup', (e) => {
-            keys[e.key] = false;
-        });
+    <div class="content">
 
-        // Mouse tracking for player paddle
-        canvas.addEventListener('mousemove', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            const mouseY = e.clientY - rect.top;
-            // Move paddle smoothly to mouse position
-            const targetY = mouseY - paddleHeight / 2;
-            player.y = targetY;
-        });
+      <!-- ======================================================
+           PAGE 1 — OVERVIEW
+      ======================================================= -->
+      <section class="page active" id="page-overview">
+        <div class="page-head">
+          <h1>Overview</h1>
+          <p>Your account at a glance, pulled from <code>GET /api/me</code> — see the top-of-file comment for the exact shape.</p>
+        </div>
 
-        // Handle arrow keys for paddle movement
-        function handlePlayerMovement() {
-            if (keys['ArrowUp'] && player.y > 0) {
-                player.y -= player.speed;
-            }
-            if (keys['ArrowDown'] && player.y < canvas.height - player.height) {
-                player.y += player.speed;
-            }
-        }
+        <div class="card">
+          <div class="profile-hero">
+            <div class="avatar-initials">AC</div>
+            <div class="who">
+              <h2 id="overviewName">Alex Carter</h2>
+              <div class="uname" id="overviewUsername">@alex</div>
+              <div class="mail"><span id="overviewEmail">alex@visrodeck.com</span> <span class="badge badge-success"><span class="g">✓</span> Verified</span></div>
+              <!-- BACKEND: if emailVerified === false, swap the badge above for
+                   badge-warn "Unverified" + a small "resend verification email"
+                   link that hits POST /api/auth/resend-verification -->
+            </div>
+          </div>
+          <div class="stat-row">
+            <div class="stat"><div class="n">3</div><div class="l">Workspaces</div></div>
+            <div class="stat"><div class="n">2</div><div class="l">Open tickets</div></div>
+            <div class="stat"><div class="n">5</div><div class="l">Active licenses</div></div>
+            <div class="stat"><div class="n">₹22,180</div><div class="l">Paid last 12mo</div></div>
+          </div>
+          <div class="btn-row" style="margin-top:18px;">
+            <button class="btn btn-secondary" onclick="showPage('profile')">Edit profile</button>
+            <button class="btn btn-secondary" onclick="showPage('workspaces')">View workspaces</button>
+            <button class="btn btn-secondary" onclick="showPage('payments')">View payments</button>
+          </div>
+        </div>
 
-        // Computer AI
-        function updateComputer() {
-            const computerCenter = computer.y + computer.height / 2;
-            const ballCenter = ball.y;
+        <!-- BACKEND: avatar upload isn't wired here since it wasn't asked for,
+             but if/when it's added: POST /api/me/avatar (multipart), returns
+             { avatarUrl }, store on CDN/object storage, not in the DB row. -->
+      </section>
 
-            // Add some lag to make it beatable
-            if (computerCenter < ballCenter - 35) {
-                computer.y += computer.speed;
-            } else if (computerCenter > ballCenter + 35) {
-                computer.y -= computer.speed;
-            }
+      <!-- ======================================================
+           PAGE 2 — PROFILE DETAILS
+      ======================================================= -->
+      <section class="page" id="page-profile">
+        <div class="page-head">
+          <h1>Profile details</h1>
+          <p>Shown to teammates in shared workspaces, and your billing address is used on invoices. None of it is used to log you in, so it's fine to leave gaps.</p>
+        </div>
 
-            // Keep computer paddle within bounds
-            if (computer.y < 0) computer.y = 0;
-            if (computer.y > canvas.height - computer.height) {
-                computer.y = canvas.height - computer.height;
-            }
-        }
+        <div class="card">
+          <div class="card-head-row">
+            <div>
+              <h3>About you</h3>
+              <p class="hint" style="margin-bottom:0;">Saved via <code>PATCH /api/me</code> — only changed fields get sent.</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="profileEditBtn" onclick="enterProfileEdit()">Edit</button>
+          </div>
 
-        // Update ball position
-        function updateBall() {
-            ball.x += ball.dx;
-            ball.y += ball.dy;
+          <form id="profileForm" onsubmit="return false;">
+            <fieldset class="profile-fields" id="profileFieldset" disabled style="margin-top:16px;">
+              <div class="grid-2">
+                <div class="field">
+                  <label class="field-label">Full name</label>
+                  <input type="text" id="fieldFullName" value="Alex Carter">
+                </div>
+                <div class="field">
+                  <label class="field-label">Pronouns</label>
+                  <select id="fieldPronoun">
+                    <option>She / her</option>
+                    <option selected>They / them</option>
+                    <option>He / him</option>
+                    <option>Prefer not to say</option>
+                    <option>Custom…</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label class="field-label">Organisation</label>
+                  <input type="text" id="fieldOrg" placeholder="e.g. Northwind Labs" value="Northwind Labs">
+                </div>
+                <div class="field">
+                  <label class="field-label">Phone number</label>
+                  <div class="phone-row">
+                    <select id="fieldPhoneCode" aria-label="Country code">
+                      <option value="+91" selected>🇮🇳 +91</option>
+                      <option value="+1">🇺🇸 +1</option>
+                      <option value="+1ca">🇨🇦 +1</option>
+                      <option value="+44">🇬🇧 +44</option>
+                      <option value="+61">🇦🇺 +61</option>
+                      <option value="+49">🇩🇪 +49</option>
+                      <option value="+33">🇫🇷 +33</option>
+                      <option value="+81">🇯🇵 +81</option>
+                      <option value="+86">🇨🇳 +86</option>
+                      <option value="+65">🇸🇬 +65</option>
+                      <option value="+971">🇦🇪 +971</option>
+                      <option value="+27">🇿🇦 +27</option>
+                      <option value="+55">🇧🇷 +55</option>
+                    </select>
+                    <input type="tel" id="fieldPhone" placeholder="98765 43210" value="98765 43210">
+                  </div>
+                </div>
+              </div>
 
-            // Ball collision with top and bottom walls
-            if (ball.y - ball.size < 0 || ball.y + ball.size > canvas.height) {
-                ball.dy = -ball.dy;
-                ball.y = Math.max(ball.size, Math.min(canvas.height - ball.size, ball.y));
-            }
+              <hr class="section-divider">
+              <h3 style="margin-bottom:2px;">Billing address</h3>
+              <p class="hint">Appears on invoices for the transactions listed on your <a onclick="showPage('payments')" style="text-decoration:underline; cursor:pointer;">Payments</a> page.</p>
 
-            // Ball collision with paddles
-            if (
-                ball.x - ball.size < player.x + player.width &&
-                ball.y > player.y &&
-                ball.y < player.y + player.height
-            ) {
-                ball.dx = -ball.dx;
-                ball.x = player.x + player.width + ball.size;
-                // Add spin based on where ball hits paddle
-                ball.dy += (ball.y - (player.y + player.height / 2)) * 0.1;
-            }
+              <div class="field field-sub">
+                <label class="field-label">Address line 1</label>
+                <input type="text" id="fieldAddr1" placeholder="Flat / building, street" value="14 Rosewood Enclave">
+              </div>
+              <div class="field field-sub">
+                <label class="field-label">Address line 2 <span style="font-weight:400; color:var(--text-faint);">(optional)</span></label>
+                <input type="text" id="fieldAddr2" placeholder="Landmark, floor, etc.">
+              </div>
+              <div class="grid-3">
+                <div class="field">
+                  <label class="field-label">City</label>
+                  <input type="text" id="fieldCity" value="Bhātpāra">
+                </div>
+                <div class="field">
+                  <label class="field-label">State / Province</label>
+                  <input type="text" id="fieldState" value="West Bengal">
+                </div>
+                <div class="field">
+                  <label class="field-label">Postal code</label>
+                  <input type="text" id="fieldPostal" value="700113">
+                </div>
+              </div>
+              <div class="field field-sub">
+                <label class="field-label">Country</label>
+                <select id="fieldCountry">
+                  <option selected>India</option>
+                  <option>United States</option>
+                  <option>Canada</option>
+                  <option>United Kingdom</option>
+                  <option>Australia</option>
+                  <option>Germany</option>
+                  <option>France</option>
+                  <option>Japan</option>
+                  <option>China</option>
+                  <option>Singapore</option>
+                  <option>United Arab Emirates</option>
+                  <option>South Africa</option>
+                  <option>Brazil</option>
+                  <option>Other</option>
+                </select>
+              </div>
+            </fieldset>
 
-            if (
-                ball.x + ball.size > computer.x &&
-                ball.y > computer.y &&
-                ball.y < computer.y + computer.height
-            ) {
-                ball.dx = -ball.dx;
-                ball.x = computer.x - ball.size;
-                ball.dy += (ball.y - (computer.y + computer.height / 2)) * 0.1;
-            }
+            <div class="btn-row" id="profileViewRow">
+              <span class="edit-badge">Last saved just now</span>
+            </div>
 
-            // Score points and reset
-            if (ball.x < 0) {
-                computerScore++;
-                resetBall();
-                document.getElementById('computerScore').textContent = computerScore;
-            }
-            if (ball.x > canvas.width) {
-                playerScore++;
-                resetBall();
-                document.getElementById('playerScore').textContent = playerScore;
-            }
-        }
+            <div class="btn-row" id="profileEditRow" style="display:none;">
+              <button type="button" class="btn btn-primary" id="profileSaveBtn" onclick="saveProfile()">Save changes</button>
+              <button type="button" class="btn btn-secondary" onclick="cancelProfileEdit()">Cancel</button>
+            </div>
+          </form>
+        </div>
 
-        // Reset ball to center
-        function resetBall() {
-            ball.x = canvas.width / 2;
-            ball.y = canvas.height / 2;
-            ball.dx = ballSpeed * (Math.random() > 0.5 ? 1 : -1);
-            ball.dy = ballSpeed * (Math.random() * 2 - 1);
-        }
+        <!-- BACKEND: "Custom…" pronoun option should reveal a free-text input
+             client-side. Organisation is a free-text label here, NOT the
+             same thing as a Workspace — don't conflate the two tables.
+             Phone is now split into { phoneCountryCode, phone } columns
+             (or store E.164-formatted, e.g. +919876543210, and re-derive
+             the code/local parts for display). Billing address is its own
+             sub-object on the /api/me record, reused as the default
+             "bill to" on new invoices unless overridden at checkout.
 
-        // Draw functions
-        function drawPaddle(paddle) {
-            ctx.fillStyle = '#4ade80';
-            ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
-            ctx.shadowColor = '#4ade80';
-            ctx.shadowBlur = 10;
-            ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
-            ctx.shadowBlur = 0;
-        }
+             EDIT FLOW: the fieldset above is disabled by default (view mode).
+             "Edit" enables it and swaps the button row to Save/Cancel. "Save"
+             disables the fieldset again immediately, shows a spinner for
+             ~900ms standing in for the PATCH round-trip, then re-enables
+             view mode and toasts success. "Cancel" restores the values
+             captured when Edit was pressed. -->
+      </section>
 
-        function drawBall() {
-            ctx.fillStyle = '#ff6b6b';
-            ctx.beginPath();
-            ctx.arc(ball.x, ball.y, ball.size, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.shadowColor = '#ff6b6b';
-            ctx.shadowBlur = 10;
-            ctx.beginPath();
-            ctx.arc(ball.x, ball.y, ball.size, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.shadowBlur = 0;
-        }
+      <!-- ======================================================
+           PAGE 3 — WORKSPACES
+      ======================================================= -->
+      <section class="page" id="page-workspaces">
+        <div class="page-head">
+          <h1>Workspaces</h1>
+          <p>A workspace is a shared container for purchased modules and licenses. Whoever buys a license adds it to the
+             workspace once — every member of that workspace can then use it, scoped by their permission level below.</p>
+        </div>
 
-        function drawCenter() {
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.setLineDash([5, 15]);
-            ctx.beginPath();
-            ctx.moveTo(canvas.width / 2, 0);
-            ctx.lineTo(canvas.width / 2, canvas.height);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
+        <!--
+          BACKEND — workspace/license sharing model (the important part):
+            - `workspaces` table: id, name, owner_user_id, created_at.
+            - `workspace_members`: workspace_id, user_id, role
+              (enum: owner / admin / member / guest — the corner-index
+              glyphs below are just a visual skin on this enum, keep the
+              enum names boring in the DB).
+            - `licenses` belong to a WORKSPACE, not a user.
+            - JOINING a workspace, two paths: invite link (signed, expiring
+              token) or by username (existing member sends an invite).
+              Both land the new member as guest/member by default.
+            - CREATE workspace: POST /api/workspaces { name } -> creator
+              becomes owner automatically.
+        -->
 
-        function drawGame() {
-            // Clear canvas
-            ctx.fillStyle = '#1a1a1a';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        <div class="card">
+          <h3>Your workspaces</h3>
+          <p class="hint">Click a card to open it (not wired in this mockup). Corner mark = your role there.</p>
 
-            // Draw center line
-            drawCenter();
+          <div class="deck-grid">
+            <div class="deck-card" onclick="toast('Would open workspace: Northwind Labs')">
+              <div class="card-index tl">♠</div>
+              <div class="card-index br">♠</div>
+              <h4>Northwind Labs</h4>
+              <div class="meta">12 members · 4 modules</div>
+              <div class="role"><span class="badge badge-success"><span class="g">✓</span> Owner</span></div>
+            </div>
+            <div class="deck-card" onclick="toast('Would open workspace: Fieldwork Collective')">
+              <div class="card-index tl">♥</div>
+              <div class="card-index br">♥</div>
+              <h4>Fieldwork Collective</h4>
+              <div class="meta">6 members · 2 modules</div>
+              <div class="role"><span class="badge badge-warn">Admin</span></div>
+            </div>
+            <div class="deck-card" onclick="toast('Would open workspace: Solace Design Co-op')">
+              <div class="card-index tl">♦</div>
+              <div class="card-index br">♦</div>
+              <h4>Solace Design Co-op</h4>
+              <div class="meta">21 members · 6 modules</div>
+              <div class="role"><span class="badge badge-muted">Member</span></div>
+            </div>
+          </div>
 
-            // Draw paddles
-            drawPaddle(player);
-            drawPaddle(computer);
+          <div class="legend">
+            <div class="item"><b>♠</b> Owner — billing + full control</div>
+            <div class="item"><b>♥</b> Admin — manage members &amp; licenses</div>
+            <div class="item"><b>♦</b> Member — use shared modules</div>
+            <div class="item"><b>♣</b> Guest — limited, read-mostly access</div>
+          </div>
 
-            // Draw ball
-            drawBall();
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="openModal('workspaceModal')">Join or create a workspace</button>
+          </div>
+        </div>
+      </section>
 
-            // Draw game status
-            if (!gameRunning) {
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = 'white';
-                ctx.font = 'bold 32px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2);
-                ctx.font = '16px Arial';
-                ctx.fillText('Press SPACE to resume', canvas.width / 2, canvas.height / 2 + 40);
-            }
-        }
+      <!-- ======================================================
+           PAGE 4 — PAYMENTS (transaction history)
+      ======================================================= -->
+      <section class="page" id="page-payments">
+        <div class="page-head">
+          <h1>Payments</h1>
+          <p>Every charge made with this account across all of your workspaces on ViSRODECK, newest first.</p>
+        </div>
 
-        // Main game loop
-        function gameLoop() {
-            if (gameRunning) {
-                handlePlayerMovement();
-                updateBall();
-                updateComputer();
-            }
+        <div class="stat-strip">
+          <div class="stat"><div class="n">₹22,180</div><div class="l">Paid last 12 months</div></div>
+          <div class="stat"><div class="n">Jul 1, 2026</div><div class="l">Last payment</div></div>
+          <div class="stat"><div class="n">2</div><div class="l">Saved payment methods</div></div>
+        </div>
 
-            drawGame();
-            requestAnimationFrame(gameLoop);
-        }
+        <div class="card">
+          <div class="card-head-row">
+            <div>
+              <h3>Transaction history</h3>
+              <p class="hint" style="margin-bottom:0;">From <code>GET /api/payments</code>, one row per charge or refund. Filters below are client-side only in this mockup.</p>
+            </div>
+          </div>
 
-        // Start the game
-        gameLoop();
-    </script>
+          <div class="filter-bar" style="margin-top:16px;">
+            <div class="search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              <input type="search" id="paymentSearch" placeholder="Search transactions…" oninput="filterPayments()">
+            </div>
+            <select id="paymentStatusFilter" onchange="filterPayments()">
+              <option value="">All statuses</option>
+              <option value="Paid">Paid</option>
+              <option value="Refunded">Refunded</option>
+              <option value="Failed">Failed</option>
+            </select>
+            <select id="paymentWorkspaceFilter" onchange="filterPayments()">
+              <option value="">All workspaces</option>
+              <option value="Northwind Labs">Northwind Labs</option>
+              <option value="Fieldwork Collective">Fieldwork Collective</option>
+              <option value="Solace Design Co-op">Solace Design Co-op</option>
+            </select>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr><th>Date</th><th>Description</th><th>Workspace</th><th>Method</th><th>Amount</th><th>Status</th><th>Invoice</th></tr>
+              </thead>
+              <tbody id="paymentTableBody">
+                <tr class="row-hover" data-status="Paid" data-workspace="Fieldwork Collective" data-search="automation add-on renewal fieldwork collective paid">
+                  <td class="date-cell" title="Jul 1, 2026, 9:14 AM">Jul 1, 2026</td>
+                  <td class="subject-cell">Automation Add-on — renewal</td>
+                  <td>Fieldwork Collective</td>
+                  <td class="mono">Visa •••• 4412</td>
+                  <td class="amount-cell">₹4,080</td>
+                  <td><span class="badge badge-success"><span class="g">✓</span> Paid</span></td>
+                  <td class="link-cell"><a onclick="toast('Would download invoice #INV-1042 (demo only)')">Download</a></td>
+                </tr>
+                <tr class="row-hover" data-status="Paid" data-workspace="Solace Design Co-op" data-search="storage boost 2tb annual solace design co-op paid">
+                  <td class="date-cell" title="Jun 12, 2026, 4:02 PM">Jun 12, 2026</td>
+                  <td class="subject-cell">Storage Boost 2TB — annual</td>
+                  <td>Solace Design Co-op</td>
+                  <td class="mono">Mastercard •••• 8830</td>
+                  <td class="amount-cell">₹9,960</td>
+                  <td><span class="badge badge-success"><span class="g">✓</span> Paid</span></td>
+                  <td class="link-cell"><a onclick="toast('Would download invoice #INV-1039 (demo only)')">Download</a></td>
+                </tr>
+                <tr class="row-hover" data-status="Failed" data-workspace="Northwind Labs" data-search="legacy reporting renewal northwind labs failed">
+                  <td class="date-cell" title="Jun 1, 2026, 8:47 AM">Jun 1, 2026</td>
+                  <td class="subject-cell">Legacy Reporting — renewal</td>
+                  <td>Northwind Labs</td>
+                  <td class="mono">Visa •••• 4412</td>
+                  <td class="amount-cell">₹1,490</td>
+                  <td><span class="badge badge-danger"><span class="g">×</span> Failed</span></td>
+                  <td class="link-cell"><a onclick="toast('Would retry payment (demo only)')">Retry</a></td>
+                </tr>
+                <tr class="row-hover" data-status="Paid" data-workspace="Northwind Labs" data-search="analytics module seats northwind labs paid">
+                  <td class="date-cell" title="May 3, 2026, 1:20 PM">May 3, 2026</td>
+                  <td class="subject-cell">Analytics Module — +3 seats</td>
+                  <td>Northwind Labs</td>
+                  <td class="mono">Visa •••• 4412</td>
+                  <td class="amount-cell">₹7,220</td>
+                  <td><span class="badge badge-success"><span class="g">✓</span> Paid</span></td>
+                  <td class="link-cell"><a onclick="toast('Would download invoice #INV-1017 (demo only)')">Download</a></td>
+                </tr>
+                <tr class="row-hover" data-status="Refunded" data-workspace="Fieldwork Collective" data-search="automation add-on prior cycle fieldwork collective refunded">
+                  <td class="date-cell" title="Apr 18, 2026, 6:55 PM">Apr 18, 2026</td>
+                  <td class="subject-cell">Automation Add-on — prior cycle</td>
+                  <td>Fieldwork Collective</td>
+                  <td class="mono">Visa •••• 4412</td>
+                  <td class="amount-cell">₹4,080</td>
+                  <td><span class="badge badge-muted">↩ Refunded</span></td>
+                  <td class="link-cell"><a onclick="toast('Would download credit note #CN-0091 (demo only)')">Credit note</a></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p id="paymentEmptyState" style="display:none; text-align:center; color:var(--text-faint); font-size:12.5px; padding:24px 10px;">No transactions match those filters.</p>
+
+          <!-- BACKEND: full server-side search/filter/pagination isn't built
+               out here. Clicking "Download"/"Credit note" should hit a
+               signed, short-lived URL for the PDF, not a static asset path.
+               "Retry" on a Failed row should re-attempt the same charge
+               against the same payment method, then update this row in
+               place from the response rather than re-fetching the list. -->
+        </div>
+
+        <div class="card">
+          <h3>Payment methods</h3>
+          <p class="hint">From <code>GET /api/payment-methods</code>. Used to pay for licenses on any workspace where you're an owner.</p>
+
+          <div class="pm-row">
+            <div class="pm-card-icon">VISA</div>
+            <div class="grow">
+              <div class="name">Visa •••• 4412</div>
+              <div class="meta">Expires 09/29 · Default</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="toast('Would remove card (demo only)')">Remove</button>
+          </div>
+          <div class="pm-row">
+            <div class="pm-card-icon">MC</div>
+            <div class="grow">
+              <div class="name">Mastercard •••• 8830</div>
+              <div class="meta">Expires 02/28</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="toast('Would set as default (demo only)')">Make default</button>
+          </div>
+
+          <div class="btn-row" style="margin-top:6px;">
+            <button class="btn btn-primary" onclick="toast('Would open add-card form (demo only)')">Add payment method</button>
+          </div>
+          <!-- BACKEND: POST /api/payment-methods should tokenize via the
+               card processor (e.g. Stripe/Razorpay Elements) — raw card
+               numbers should never touch our own servers. -->
+        </div>
+      </section>
+
+      <!-- ======================================================
+           PAGE 5 — TICKETS
+      ======================================================= -->
+      <section class="page" id="page-tickets">
+        <div class="page-head">
+          <h1>Support tickets</h1>
+          <p>Reach the ViSRODECK support team directly. Tickets are tied to your account and, optionally, a workspace.</p>
+        </div>
+
+        <div class="card">
+          <div class="section-head" style="margin:0 0 4px;">
+            <h3>Your tickets</h3>
+            <button class="btn btn-primary" onclick="openModal('ticketModal')">Create ticket</button>
+          </div>
+          <p class="hint">List comes from <code>GET /api/tickets</code>, newest first. Filters below are client-side only in this mockup — a real build should pass <code>?status=&amp;workspace_id=&amp;q=</code> to the endpoint and paginate server-side.</p>
+
+          <div class="filter-bar">
+            <div class="search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              <input type="search" id="ticketSearch" placeholder="Search tickets…" oninput="filterTickets()">
+            </div>
+            <select id="ticketStatusFilter" onchange="filterTickets()">
+              <option value="">All statuses</option>
+              <option value="Pending">Pending</option>
+              <option value="Open">Open</option>
+              <option value="Resolved">Resolved</option>
+            </select>
+            <select id="ticketWorkspaceFilter" onchange="filterTickets()">
+              <option value="">All workspaces</option>
+              <option value="Northwind Labs">Northwind Labs</option>
+              <option value="none">No workspace</option>
+            </select>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr><th>ID</th><th>Subject</th><th>Workspace</th><th>Priority</th><th>Status</th><th>Updated</th></tr>
+              </thead>
+              <tbody id="ticketTableBody">
+                <tr class="row-hover" data-status="Pending" data-workspace="Northwind Labs" data-search="cant add a seat to the analytics module northwind labs high pending">
+                  <td class="id-cell">#1042</td>
+                  <td class="subject-cell" title="Can't add a seat to the Analytics module">Can't add a seat to the Analytics module</td>
+                  <td>Northwind Labs</td>
+                  <td><span class="badge badge-warn">High</span></td>
+                  <td><span class="badge badge-warn">Pending</span></td>
+                  <td class="date-cell" title="Jul 4, 2026, 3:12 PM">2 days ago</td>
+                </tr>
+                <tr class="row-hover" data-status="Open" data-workspace="none" data-search="question about license renewal date normal open">
+                  <td class="id-cell">#1038</td>
+                  <td class="subject-cell" title="Question about license renewal date">Question about license renewal date</td>
+                  <td>—</td>
+                  <td><span class="badge badge-muted">Normal</span></td>
+                  <td><span class="badge badge-success"><span class="g">✓</span> Open</span></td>
+                  <td class="date-cell" title="Jul 1, 2026, 10:40 AM">5 days ago</td>
+                </tr>
+                <tr class="row-hover" data-status="Resolved" data-workspace="none" data-search="requesting a data export normal resolved">
+                  <td class="id-cell">#1021</td>
+                  <td class="subject-cell" title="Requesting a data export">Requesting a data export</td>
+                  <td>—</td>
+                  <td><span class="badge badge-muted">Normal</span></td>
+                  <td><span class="badge badge-muted">Resolved</span></td>
+                  <td class="date-cell" title="Jun 15, 2026, 9:02 AM">3 weeks ago</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p id="ticketEmptyState" style="display:none; text-align:center; color:var(--text-faint); font-size:12.5px; padding:24px 10px;">No tickets match those filters.</p>
+
+          <!-- BACKEND: full server-side search/filter/pagination isn't built
+               out here — see hint above. Clicking a row should open a ticket
+               detail/thread view — a separate page not included in this file. -->
+        </div>
+      </section>
+
+      <!-- ======================================================
+           PAGE 6 — SUDO (dangerous account actions)
+      ======================================================= -->
+      <section class="page" id="page-sudo">
+        <div class="page-head">
+          <h1>SUDO</h1>
+          <p>Account-level actions that are hard or impossible to undo.</p>
+        </div>
+
+        <div class="notice">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 7.8 7 9 4-1.2 7-4.5 7-9V6l-7-3Z"/><path d="M9.5 12 11 13.5 14.5 10"/></svg>
+          <div>Every action below sends a one-time verification link to your registered email, <strong id="sudoEmailInline">alex@visrodeck.com</strong>. Nothing takes effect until you open that email and confirm — this page only <em>starts</em> the request.</div>
+        </div>
+
+        <div class="card sudo-card">
+          <div class="sudo-row">
+            <div>
+              <div class="t">Change username</div>
+              <div class="d">Your profile link becomes visrodeck.com/@newname once confirmed by email.</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="openModal('usernameModal')">Change</button>
+          </div>
+
+          <div class="sudo-row">
+            <div>
+              <div class="t">Migrate account</div>
+              <div class="d">Move this account — and everything tied to it — to a different email address.</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="openModal('migrateModal')">Migrate</button>
+          </div>
+
+          <div class="sudo-row">
+            <div>
+              <div class="t">Request my collected data</div>
+              <div class="d">Confirm by email, then we'll send a download link with everything we hold on your account.</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="openModal('exportModal')">Request export</button>
+          </div>
+
+          <div class="sudo-row">
+            <div>
+              <div class="t">Delete account</div>
+              <div class="d">Permanently deletes your account once confirmed. Workspaces you own transfer or get deleted first.</div>
+            </div>
+            <button class="btn btn-danger btn-sm" onclick="openModal('deleteModal')">Delete…</button>
+          </div>
+        </div>
+
+        <!--
+          BACKEND — one endpoint per action. Every action is now two steps:
+          the user submits the request here, we email a signed, short-lived
+          confirmation link, and the actual mutation only happens when that
+          link is opened (and, ideally, the user is re-prompted for their
+          password/OTP on that confirmation page too).
+            - PATCH /api/me/username/request { newUsername }
+              -> availability-checked here, but the rename itself only
+                 commits when GET /api/me/username/confirm?token=... is hit.
+            - POST /api/me/migrate { newEmail }
+              -> send confirmation links to BOTH old and new addresses;
+                 only swap over once both confirm. Keep the old email as
+                 a backup contact for a grace period.
+            - POST /api/me/data-export/request
+              -> email a confirm link; only once confirmed does the async
+                 export job get queued, followed by a second email with
+                 the signed, expiring download link.
+            - POST /api/me/delete/request
+              -> email a confirm link; only once confirmed do we soft-delete
+                 with a grace period (e.g. 30 days) before hard delete.
+              -> if the user OWNS any workspace with other members, block
+                 until they transfer ownership or delete the workspace first.
+            - All four "request" endpoints should rate-limit and expire
+              unused tokens (e.g. 30 minutes) so a stale email can't be
+              replayed later.
+        -->
+      </section>
+
+      <!-- ======================================================
+           PAGE 7 — CONNECTIONS
+      ======================================================= -->
+      <section class="page" id="page-connections">
+        <div class="page-head">
+          <h1>Connections</h1>
+          <p>Third-party sign-in providers and modules that currently have access to your account.</p>
+        </div>
+
+        <div class="card">
+          <h3>Sign-in providers</h3>
+          <p class="hint">From <code>oauth_identities</code> — same table the sign-in page links into on first OAuth login.</p>
+
+          <div class="conn-row">
+            <div class="conn-icon">
+              <svg width="16" height="16" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.83.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.98v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.98A9 9 0 0 0 0 9c0 1.45.35 2.83.98 4.03l2.97-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .98 4.97l2.97 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+            </div>
+            <div class="grow">
+              <div class="name">Google</div>
+              <div class="scopes">Connected · email, profile · since Mar 2026</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="toast('Would disconnect Google (demo only)')">Disconnect</button>
+          </div>
+
+          <div class="conn-row">
+            <div class="conn-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="var(--text)"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+            </div>
+            <div class="grow">
+              <div class="name">GitHub</div>
+              <div class="scopes">Not connected</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="toast('Would start GitHub OAuth (demo only)')">Connect</button>
+          </div>
+
+          <div class="conn-row">
+            <div class="conn-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="#5865F2"><path d="M20.32 4.37a19.8 19.8 0 0 0-4.9-1.52.07.07 0 0 0-.08.04c-.21.38-.45.87-.61 1.26a18.3 18.3 0 0 0-5.49 0 12.6 12.6 0 0 0-.62-1.26.08.08 0 0 0-.08-.04 19.7 19.7 0 0 0-4.9 1.52.07.07 0 0 0-.03.03C1.24 8.86.44 13.2.83 17.48a.08.08 0 0 0 .03.06 19.9 19.9 0 0 0 5.99 3.03.08.08 0 0 0 .09-.03c.46-.63.87-1.3 1.22-2a.08.08 0 0 0-.04-.11 13.1 13.1 0 0 1-1.87-.9.08.08 0 0 1 0-.13c.13-.1.25-.2.37-.3a.07.07 0 0 1 .08 0c3.93 1.8 8.18 1.8 12.06 0a.07.07 0 0 1 .08 0c.12.1.24.2.37.3a.08.08 0 0 1 0 .13c-.6.35-1.22.65-1.87.9a.08.08 0 0 0-.04.11c.36.7.77 1.37 1.22 2a.08.08 0 0 0 .09.03 19.8 19.8 0 0 0 6-3.03.08.08 0 0 0 .03-.06c.46-4.95-.78-9.25-3.32-13.08a.06.06 0 0 0-.03-.03zM8.02 14.9c-1.18 0-2.16-1.09-2.16-2.42 0-1.34.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.96 0c-1.18 0-2.16-1.09-2.16-2.42 0-1.34.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg>
+            </div>
+            <div class="grow">
+              <div class="name">Discord</div>
+              <div class="scopes">Connected · identify, email · since Jan 2026</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="toast('Would disconnect Discord (demo only)')">Disconnect</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Connected modules</h3>
+          <p class="hint">Modules a workspace admin has authorized to read/write account or workspace data.</p>
+          <div class="conn-row">
+            <div class="conn-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="3"/></svg>
+            </div>
+            <div class="grow">
+              <div class="name">Analytics Module</div>
+              <div class="scopes">Northwind Labs workspace · read usage data</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="toast('Would revoke access (demo only)')">Revoke</button>
+          </div>
+        </div>
+
+        <!-- BACKEND: disconnecting a sign-in provider should be BLOCKED
+             server-side if it's the user's only login method and they have
+             no password set — otherwise they lock themselves out. -->
+      </section>
+
+      <!-- ======================================================
+           PAGE 8 — LICENSES
+      ======================================================= -->
+      <section class="page" id="page-licenses">
+        <div class="page-head">
+          <h1>Licenses</h1>
+          <p>Every license below belongs to a workspace (see Workspaces), not to you personally — this is just your view
+             of what you currently have access to through the workspaces you're in.</p>
+        </div>
+
+        <div class="stat-strip">
+          <div class="stat"><div class="n">4</div><div class="l">Active licenses</div></div>
+          <div class="stat"><div class="n">17 / 23</div><div class="l">Seats in use</div></div>
+          <div class="stat"><div class="n">1</div><div class="l">Renewing in 30 days</div></div>
+        </div>
+
+        <div class="card">
+          <h3>Active &amp; upcoming</h3>
+          <p class="hint">From <code>GET /api/licenses</code>, one row per license per workspace. Only workspace owners/admins see billing amounts and invoices — members and guests get this read-only view.</p>
+
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr><th>Module</th><th>Workspace</th><th>Seats</th><th>Status</th><th>Renews / expires</th></tr>
+              </thead>
+              <tbody>
+                <tr class="row-hover">
+                  <td><span class="suit-chip">♠</span>Analytics Module</td>
+                  <td>Northwind Labs</td>
+                  <td><span class="seat-bar"><span class="seat-bar-fill" style="width:80%;"></span></span><span class="seat-text">12 / 15</span></td>
+                  <td><span class="badge badge-success"><span class="g">✓</span> Active</span></td>
+                  <td class="date-cell">Mar 12, 2027</td>
+                </tr>
+                <tr class="row-hover">
+                  <td><span class="suit-chip">♥</span>Automation Add-on</td>
+                  <td>Fieldwork Collective</td>
+                  <td><span class="seat-bar"><span class="seat-bar-fill" style="width:80%;"></span></span><span class="seat-text">4 / 5</span></td>
+                  <td><span class="badge badge-warn">Renews in 6 days</span></td>
+                  <td class="date-cell">Jul 12, 2026</td>
+                </tr>
+                <tr class="row-hover">
+                  <td><span class="suit-chip">♦</span>Storage Boost 2TB</td>
+                  <td>Solace Design Co-op</td>
+                  <td><span class="seat-bar"><span class="seat-bar-fill" style="width:100%;"></span></span><span class="seat-text">Unlimited</span></td>
+                  <td><span class="badge badge-success"><span class="g">✓</span> Active</span></td>
+                  <td class="date-cell">Nov 2, 2026</td>
+                </tr>
+                <tr class="row-hover" style="opacity:.55;">
+                  <td><span class="suit-chip">♣</span>Legacy Reporting</td>
+                  <td>Northwind Labs</td>
+                  <td><span class="seat-bar"><span class="seat-bar-fill" style="width:0%;"></span></span><span class="seat-text">0 / 3</span></td>
+                  <td><span class="badge badge-danger"><span class="g">×</span> Expired</span></td>
+                  <td class="date-cell">Jun 1, 2026</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- BACKEND: purchasing a new license or seat should be its own
+               flow (checkout page), not built out in this mockup. -->
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ============================== FOOTER ============================== -->
+    <footer class="site-footer">
+      <div class="fco"><strong>Visrodeck Technologies</strong></div>
+      <div class="footer-links">
+        <a onclick="goToPolicy('https://visrodeck.com/policies/privacy.html')">Privacy Policy</a>
+        <a onclick="goToPolicy('https://visrodeck.com/policies/toc.html')">Terms of Service</a>
+      </div>
+    </footer>
+  </div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Inline fallback logo, only ever inserted if the CDN image request fails -->
+<template id="brandLogoFallback">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="display:block;margin:auto;">
+    <path d="M12 3c-3 3.6-6.5 6-6.5 10a6.5 6.5 0 0 0 13 0c0-4-3.5-6.4-6.5-10Z" fill="var(--accent-ink)"/>
+    <rect x="10.7" y="16" width="2.6" height="5" fill="var(--accent-ink)"/>
+  </svg>
+</template>
+
+<!-- ============================================================
+     MODALS
+============================================================= -->
+
+<!-- Workspace: join or create -->
+<div class="modal-backdrop" id="workspaceModal">
+  <div class="modal">
+    <h3>Join or create a workspace</h3>
+    <p class="hint">Joining adds you as a guest by default — an admin can raise your role afterwards.</p>
+    <div class="modal-tabs">
+      <button class="active" onclick="setModalTab('workspaceModal','link')" id="wsTab-link">Join via link</button>
+      <button onclick="setModalTab('workspaceModal','username')" id="wsTab-username">Join via username</button>
+      <button onclick="setModalTab('workspaceModal','create')" id="wsTab-create">Create new</button>
+    </div>
+
+    <div class="modal-pane active" id="wsPane-link">
+      <div class="field">
+        <label class="field-label">Invite link</label>
+        <input type="text" placeholder="https://visrodeck.com/join/xxxxxxx">
+      </div>
+      <button class="btn btn-primary" style="width:100%;" onclick="toast('Would join via link (demo only)'); closeModal('workspaceModal')">Join workspace</button>
+    </div>
+
+    <div class="modal-pane" id="wsPane-username">
+      <div class="field">
+        <label class="field-label">Invite a member by username</label>
+        <input type="text" placeholder="@username">
+      </div>
+      <button class="btn btn-primary" style="width:100%;" onclick="toast('Would send invite (demo only)'); closeModal('workspaceModal')">Send invite</button>
+    </div>
+
+    <div class="modal-pane" id="wsPane-create">
+      <div class="field">
+        <label class="field-label">Workspace name</label>
+        <input type="text" placeholder="e.g. Riverside Studio">
+      </div>
+      <button class="btn btn-primary" style="width:100%;" onclick="toast('Would create workspace (demo only)'); closeModal('workspaceModal')">Create workspace</button>
+    </div>
+
+    <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="closeModal('workspaceModal')">Cancel</button>
+  </div>
+</div>
+
+<!-- Ticket: create -->
+<div class="modal-backdrop" id="ticketModal">
+  <div class="modal">
+    <h3>Create a ticket</h3>
+    <p class="hint">Sent to ViSRODECK support. You'll get updates by email and here.</p>
+    <div class="field">
+      <label class="field-label">Subject</label>
+      <input type="text" placeholder="Short summary of the issue">
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label class="field-label">Category</label>
+        <select><option>Billing</option><option>Technical issue</option><option>Account</option><option>Other</option></select>
+      </div>
+      <div class="field">
+        <label class="field-label">Priority</label>
+        <select><option>Normal</option><option>High</option><option>Urgent</option></select>
+      </div>
+    </div>
+    <div class="field">
+      <label class="field-label">Description</label>
+      <textarea placeholder="What's going on?"></textarea>
+    </div>
+    <button class="btn btn-primary" style="width:100%;" onclick="toast('Ticket created (demo only)'); closeModal('ticketModal')">Submit ticket</button>
+    <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="closeModal('ticketModal')">Cancel</button>
+  </div>
+</div>
+
+<!-- SUDO: change username -->
+<div class="modal-backdrop" id="usernameModal">
+  <div class="modal">
+    <div id="usernameModal-form">
+      <h3>Change username</h3>
+      <p class="hint">Checked for availability as you type. This does NOT change your email or password. We'll email a confirmation link before it applies.</p>
+      <div class="field">
+        <label class="field-label">New username</label>
+        <input type="text" placeholder="@newname" oninput="toast('Would check availability: GET /api/users/check-username?u=... (demo only)')">
+      </div>
+      <button class="btn btn-primary" style="width:100%;" onclick="sendSudoVerification('usernameModal')">Send verification email</button>
+      <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="closeModal('usernameModal')">Cancel</button>
+    </div>
+    <div id="usernameModal-pending" class="pending-panel" style="display:none;">
+      <div class="icon-circle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 6.5 8 6 8-6"/></svg>
+      </div>
+      <h4>Check your email</h4>
+      <p>We sent a confirmation link to <span class="email-chip" id="usernameModal-email">alex@visrodeck.com</span>. Open it to finish changing your username. The link expires in 30 minutes.</p>
+      <button class="btn btn-secondary" style="width:100%;" onclick="resendSudoVerification('usernameModal')">Resend email</button>
+      <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="closeModal('usernameModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- SUDO: migrate account -->
+<div class="modal-backdrop" id="migrateModal">
+  <div class="modal">
+    <div id="migrateModal-form">
+      <h3>Migrate account</h3>
+      <p class="hint">We'll email confirmation links to both the old and new addresses before anything changes.</p>
+      <div class="field">
+        <label class="field-label">New email address</label>
+        <input type="email" placeholder="new@email.com">
+      </div>
+      <button class="btn btn-primary" style="width:100%;" onclick="sendSudoVerification('migrateModal')">Send confirmation emails</button>
+      <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="closeModal('migrateModal')">Cancel</button>
+    </div>
+    <div id="migrateModal-pending" class="pending-panel" style="display:none;">
+      <div class="icon-circle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 6.5 8 6 8-6"/></svg>
+      </div>
+      <h4>Confirm from both inboxes</h4>
+      <p>Links were sent to <span class="email-chip" id="migrateModal-email">alex@visrodeck.com</span> and your new address. The migration only completes once both are confirmed.</p>
+      <button class="btn btn-secondary" style="width:100%;" onclick="resendSudoVerification('migrateModal')">Resend emails</button>
+      <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="closeModal('migrateModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- SUDO: request data export -->
+<div class="modal-backdrop" id="exportModal">
+  <div class="modal">
+    <div id="exportModal-form">
+      <h3>Request my collected data</h3>
+      <p class="hint">We'll email a confirmation link first — once confirmed, a download link follows once the export is ready.</p>
+      <button class="btn btn-primary" style="width:100%;" onclick="sendSudoVerification('exportModal')">Send verification email</button>
+      <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="closeModal('exportModal')">Cancel</button>
+    </div>
+    <div id="exportModal-pending" class="pending-panel" style="display:none;">
+      <div class="icon-circle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 6.5 8 6 8-6"/></svg>
+      </div>
+      <h4>Check your email</h4>
+      <p>We sent a confirmation link to <span class="email-chip" id="exportModal-email">alex@visrodeck.com</span>. Once confirmed, we'll prepare your data and email a download link.</p>
+      <button class="btn btn-secondary" style="width:100%;" onclick="resendSudoVerification('exportModal')">Resend email</button>
+      <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="closeModal('exportModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- SUDO: delete account -->
+<div class="modal-backdrop" id="deleteModal">
+  <div class="modal">
+    <div id="deleteModal-form">
+      <h3>Delete account</h3>
+      <p class="hint">This can't be undone once the grace period ends. Type your username, then confirm from your email.</p>
+      <div class="field">
+        <label class="field-label">Type "alex" to confirm</label>
+        <input type="text" id="deleteConfirmInput" placeholder="alex">
+      </div>
+      <button class="btn btn-danger solid" style="width:100%;" onclick="startDeleteConfirm()">Send verification email</button>
+      <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="closeModal('deleteModal')">Cancel</button>
+    </div>
+    <div id="deleteModal-pending" class="pending-panel" style="display:none;">
+      <div class="icon-circle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 6.5 8 6 8-6"/></svg>
+      </div>
+      <h4>Check your email</h4>
+      <p>We sent a confirmation link to <span class="email-chip" id="deleteModal-email">alex@visrodeck.com</span>. Your account is only deleted once you confirm from there — a 30-day grace period follows before it's permanent.</p>
+      <button class="btn btn-secondary" style="width:100%;" onclick="resendSudoVerification('deleteModal')">Resend email</button>
+      <button class="btn btn-secondary" style="width:100%; margin-top:10px;" onclick="closeModal('deleteModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ============================================================
+  // FRONTEND STATE ONLY — nothing below makes a real network call
+  // except the logo <img> tag, which points at the real CDN host.
+  // Every function that should eventually hit the backend has a
+  // // BACKEND: comment right above the alert()/toast() stand-in.
+  // ============================================================
+
+  function showPage(id) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + id).classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelector('.nav-item[data-page="' + id + '"]').classList.add('active');
+
+    const titles = {
+      overview: 'Overview', profile: 'Profile details', workspaces: 'Workspaces',
+      payments: 'Payments', tickets: 'Support tickets', sudo: 'SUDO',
+      connections: 'Connections', licenses: 'Licenses'
+    };
+    document.getElementById('topbarTitle').textContent = titles[id];
+    document.getElementById('topbarCrumb').textContent = 'visrodeck.com/dashboard/' + id;
+
+    if (id !== 'profile' && profileEditing) cancelProfileEdit();
+    closeSidebar();
+  }
+
+  // ------------------------------------------------------------
+  // Mobile off-canvas sidebar
+  // ------------------------------------------------------------
+  function openSidebar() {
+    document.getElementById('sidebar').classList.add('open');
+    document.getElementById('sidebarOverlay').classList.add('open');
+  }
+  function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('open');
+  }
+
+  function toggleTheme() {
+    const html = document.documentElement;
+    const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    // BACKEND/PRODUCT NOTE: persist this preference so it survives a
+    // reload — e.g. PATCH /api/me { themePreference: next }, applied
+    // server-side on next page render to avoid a flash of the wrong
+    // theme. (Not localStorage — this mockup intentionally avoids it.)
+  }
+
+  function openModal(id) {
+    document.getElementById(id).classList.add('open');
+    if (id === 'workspaceModal') setModalTab('workspaceModal', 'link');
+  }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+    // reset any two-step SUDO modal back to its form view for next time
+    const formEl = document.getElementById(id + '-form');
+    const pendingEl = document.getElementById(id + '-pending');
+    if (formEl && pendingEl) {
+      formEl.style.display = '';
+      pendingEl.style.display = 'none';
+    }
+  }
+
+  function setModalTab(modalId, tab) {
+    ['link', 'username', 'create'].forEach(t => {
+      const btn = document.getElementById('wsTab-' + t);
+      const pane = document.getElementById('wsPane-' + t);
+      if (btn) btn.classList.toggle('active', t === tab);
+      if (pane) pane.classList.toggle('active', t === tab);
+    });
+  }
+
+  // ------------------------------------------------------------
+  // SUDO email-verification flow — shared by username/migrate/export/delete
+  // ------------------------------------------------------------
+  function sendSudoVerification(modalId) {
+    // BACKEND: POST /api/me/<action>/request — issues a signed, short-lived
+    // (e.g. 30 min) token and emails a confirmation link to the address on
+    // file. The actual mutation happens only when that link is opened,
+    // never from this click alone.
+    document.getElementById(modalId + '-form').style.display = 'none';
+    document.getElementById(modalId + '-pending').style.display = 'block';
+    toast('Verification email sent — check your inbox');
+  }
+
+  function resendSudoVerification(modalId) {
+    // BACKEND: re-issue the same request endpoint; should be rate-limited
+    // (e.g. one resend per 60s) to avoid mail-bombing the address on file.
+    toast('Verification email resent');
+  }
+
+  function startDeleteConfirm() {
+    const val = document.getElementById('deleteConfirmInput').value.trim();
+    if (val !== 'alex') {
+      toast('Type your username exactly to confirm');
+      return;
+    }
+    sendSudoVerification('deleteModal');
+  }
+
+  // ------------------------------------------------------------
+  // Profile edit / save-with-buffering flow
+  // ------------------------------------------------------------
+  const profileFieldset = () => document.getElementById('profileFieldset');
+  const profileFieldIds = ['fieldFullName', 'fieldPronoun', 'fieldOrg', 'fieldPhoneCode', 'fieldPhone',
+    'fieldAddr1', 'fieldAddr2', 'fieldCity', 'fieldState', 'fieldPostal', 'fieldCountry'];
+  let profileSnapshot = null; // values captured when Edit was pressed, for Cancel
+  let profileEditing = false;
+
+  function readProfileValues() {
+    const vals = {};
+    profileFieldIds.forEach(id => { vals[id] = document.getElementById(id).value; });
+    return vals;
+  }
+  function writeProfileValues(vals) {
+    profileFieldIds.forEach(id => { document.getElementById(id).value = vals[id]; });
+  }
+
+  function enterProfileEdit() {
+    profileSnapshot = readProfileValues();
+    profileEditing = true;
+    profileFieldset().disabled = false;
+    document.getElementById('fieldFullName').focus();
+    document.getElementById('profileEditBtn').style.display = 'none';
+    document.getElementById('profileViewRow').style.display = 'none';
+    document.getElementById('profileEditRow').style.display = 'flex';
+  }
+
+  function cancelProfileEdit() {
+    if (profileSnapshot) writeProfileValues(profileSnapshot);
+    profileEditing = false;
+    profileFieldset().disabled = true;
+    document.getElementById('profileEditBtn').style.display = '';
+    document.getElementById('profileEditRow').style.display = 'none';
+    document.getElementById('profileViewRow').style.display = 'flex';
+  }
+
+  function saveProfile() {
+    profileFieldset().disabled = true;
+    const saveBtn = document.getElementById('profileSaveBtn');
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="spinner"></span> Saving…';
+
+    // BACKEND: PATCH /api/me with only the fields that changed vs.
+    // profileSnapshot. The 900ms delay below stands in for that request;
+    // on failure, roll back and toast an error instead of the success path.
+    setTimeout(() => {
+      profileEditing = false;
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save changes';
+      document.getElementById('profileEditBtn').style.display = '';
+      document.getElementById('profileEditRow').style.display = 'none';
+      document.getElementById('profileViewRow').style.display = 'flex';
+      document.querySelector('#profileViewRow .edit-badge').textContent = 'Last saved just now';
+
+      const newName = document.getElementById('fieldFullName').value.trim() || 'Alex Carter';
+      document.getElementById('overviewName').textContent = newName;
+
+      toast('Profile saved');
+    }, 900);
+  }
+
+  function goToPolicy(url) {
+    window.location.href = url;
+  }
+
+  // Client-side ticket filtering (demo only)
+  function filterTickets() {
+    const q = document.getElementById('ticketSearch').value.trim().toLowerCase();
+    const status = document.getElementById('ticketStatusFilter').value;
+    const workspace = document.getElementById('ticketWorkspaceFilter').value;
+    const rows = document.querySelectorAll('#ticketTableBody tr');
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+      const matchesQ = !q || row.dataset.search.includes(q);
+      const matchesStatus = !status || row.dataset.status === status;
+      const matchesWorkspace = !workspace || row.dataset.workspace === workspace;
+      const show = matchesQ && matchesStatus && matchesWorkspace;
+      row.style.display = show ? '' : 'none';
+      if (show) visibleCount++;
+    });
+
+    document.getElementById('ticketEmptyState').style.display = visibleCount === 0 ? 'block' : 'none';
+  }
+
+  // Client-side payment filtering (demo only — a real build should pass
+  // ?status=&workspace_id=&q= to GET /api/payments and paginate server-side)
+  function filterPayments() {
+    const q = document.getElementById('paymentSearch').value.trim().toLowerCase();
+    const status = document.getElementById('paymentStatusFilter').value;
+    const workspace = document.getElementById('paymentWorkspaceFilter').value;
+    const rows = document.querySelectorAll('#paymentTableBody tr');
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+      const matchesQ = !q || row.dataset.search.includes(q);
+      const matchesStatus = !status || row.dataset.status === status;
+      const matchesWorkspace = !workspace || row.dataset.workspace === workspace;
+      const show = matchesQ && matchesStatus && matchesWorkspace;
+      row.style.display = show ? '' : 'none';
+      if (show) visibleCount++;
+    });
+
+    document.getElementById('paymentEmptyState').style.display = visibleCount === 0 ? 'block' : 'none';
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  }
+
+  // close modals on backdrop click
+  document.querySelectorAll('.modal-backdrop').forEach(bd => {
+    bd.addEventListener('click', e => { if (e.target === bd) closeModal(bd.id); });
+  });
+
+  // Esc closes the mobile sidebar drawer
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebar(); });
+</script>
+
 </body>
 </html>
